@@ -1,7 +1,10 @@
 package id.periksa.plugins.usbcamera;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.ImageDecoder;
 import android.net.Uri;
@@ -9,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.activity.result.ActivityResult;
 
@@ -44,10 +48,21 @@ public class UsbCameraPlugin extends Plugin {
     };
 
     private final List<String> mMissPermissions = new ArrayList<>();
+    private BroadcastReceiver frameReceiver;
+    private boolean isStreamingActive = false;
 
     @Override
     protected void handleOnStart() {
         super.handleOnStart();
+    }
+
+    @Override
+    protected void handleOnStop() {
+        super.handleOnStop();
+        if (frameReceiver != null) {
+            getContext().unregisterReceiver(frameReceiver);
+            frameReceiver = null;
+        }
     }
 
     @PluginMethod
@@ -158,6 +173,103 @@ public class UsbCameraPlugin extends Plugin {
             }
 
             call.resolve(plResult);
+        }
+    }
+
+    // LiveKit Streaming Methods
+
+    @PluginMethod
+    public void startStream(PluginCall call) {
+        if (checkAndRequestPermissions(call)) {
+            startStreamingIntent(call);
+        }
+    }
+
+    @PluginMethod
+    public void stopStream(PluginCall call) {
+        isStreamingActive = false;
+        if (frameReceiver != null) {
+            getContext().unregisterReceiver(frameReceiver);
+            frameReceiver = null;
+        }
+
+        JSObject result = new JSObject();
+        result.put("status", "stopped");
+        result.put("exit_code", "stream_stopped");
+        call.resolve(result);
+    }
+
+    private void startStreamingIntent(PluginCall call) {
+        // Register broadcast receiver for frame data
+        if (frameReceiver == null) {
+            frameReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (!isStreamingActive) return;
+
+                    byte[] frameData = intent.getByteArrayExtra("frame_data");
+                    int width = intent.getIntExtra("width", 640);
+                    int height = intent.getIntExtra("height", 480);
+                    String format = intent.getStringExtra("format");
+
+                    if (frameData != null) {
+                        // Convert frame to base64 for sending to JavaScript
+                        String base64Frame = Base64.encodeToString(frameData, Base64.NO_WRAP);
+
+                        JSObject frameObject = new JSObject();
+                        frameObject.put("frameData", base64Frame);
+                        frameObject.put("width", width);
+                        frameObject.put("height", height);
+                        frameObject.put("format", format);
+                        frameObject.put("timestamp", System.currentTimeMillis());
+
+                        // Emit event to JavaScript
+                        notifyListeners("frame", frameObject);
+                    }
+                }
+            };
+
+            IntentFilter filter = new IntentFilter("id.periksa.plugins.usbcamera.FRAME_AVAILABLE");
+            getContext().registerReceiver(frameReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        }
+
+        isStreamingActive = true;
+
+        Intent streamIntent = new Intent(getActivity(), USBCameraStreamActivity.class);
+        startActivityForResult(call, streamIntent, "streamResult");
+    }
+
+    @ActivityCallback
+    private void streamResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+
+        Bundle bundle = result.getData() != null ? result.getData().getExtras() : null;
+        if (bundle != null) {
+            String exitCode = bundle.getString("exit_code", "unknown");
+            int width = bundle.getInt("width", 640);
+            int height = bundle.getInt("height", 480);
+
+            JSObject plResult = new JSObject();
+            plResult.put("status_code", result.getResultCode());
+            plResult.put("exit_code", exitCode);
+            plResult.put("width", width);
+            plResult.put("height", height);
+
+            if ("streaming_started".equals(exitCode)) {
+                plResult.put("streaming", true);
+                call.resolve(plResult);
+            } else {
+                isStreamingActive = false;
+                plResult.put("streaming", false);
+                call.resolve(plResult);
+            }
+        } else {
+            isStreamingActive = false;
+            JSObject errorResult = new JSObject();
+            errorResult.put("status_code", result.getResultCode());
+            errorResult.put("exit_code", "error");
+            errorResult.put("streaming", false);
+            call.resolve(errorResult);
         }
     }
 }
