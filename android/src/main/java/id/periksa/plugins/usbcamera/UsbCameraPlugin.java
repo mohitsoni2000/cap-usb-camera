@@ -49,7 +49,8 @@ public class UsbCameraPlugin extends Plugin {
 
     private final List<String> mMissPermissions = new ArrayList<>();
     private BroadcastReceiver frameReceiver;
-    private boolean isStreamingActive = false;
+    private volatile boolean isStreamingActive = false;
+    private boolean isFrameReceiverRegistered = false;
 
     @Override
     protected void handleOnStart() {
@@ -59,8 +60,13 @@ public class UsbCameraPlugin extends Plugin {
     @Override
     protected void handleOnStop() {
         super.handleOnStop();
-        if (frameReceiver != null) {
-            getContext().unregisterReceiver(frameReceiver);
+        if (frameReceiver != null && isFrameReceiverRegistered) {
+            try {
+                getContext().unregisterReceiver(frameReceiver);
+                isFrameReceiverRegistered = false;
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Frame receiver was not registered", e);
+            }
             frameReceiver = null;
         }
     }
@@ -188,8 +194,13 @@ public class UsbCameraPlugin extends Plugin {
     @PluginMethod
     public void stopStream(PluginCall call) {
         isStreamingActive = false;
-        if (frameReceiver != null) {
-            getContext().unregisterReceiver(frameReceiver);
+        if (frameReceiver != null && isFrameReceiverRegistered) {
+            try {
+                getContext().unregisterReceiver(frameReceiver);
+                isFrameReceiverRegistered = false;
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Frame receiver was not registered", e);
+            }
             frameReceiver = null;
         }
 
@@ -230,7 +241,20 @@ public class UsbCameraPlugin extends Plugin {
             };
 
             IntentFilter filter = new IntentFilter("id.periksa.plugins.usbcamera.FRAME_AVAILABLE");
-            getContext().registerReceiver(frameReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+
+            // Fix: Check API level for RECEIVER_NOT_EXPORTED
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    getContext().registerReceiver(frameReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                } else {
+                    getContext().registerReceiver(frameReceiver, filter);
+                }
+                isFrameReceiverRegistered = true;
+            } catch (Exception e) {
+                Log.e(TAG, "Error registering frame receiver", e);
+                call.reject("Failed to register frame receiver: " + e.getMessage());
+                return;
+            }
         }
 
         isStreamingActive = true;

@@ -3,6 +3,7 @@ package id.periksa.plugins.usbcamera;
 import android.content.Intent;
 import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Base64;
 import android.util.Log;
@@ -31,7 +32,7 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
 
     private static final int PREVIEW_WIDTH = 640;
     private static final int PREVIEW_HEIGHT = 480;
-    private static final int PREVIEW_MODE = UVCCamera.FRAME_FORMAT_MJPEG;
+    private static final int PREVIEW_MODE = 1; // MJPEG mode
 
     private LibUVCCameraUSBMonitor mUSBMonitor;
     private UVCCameraHandler mCameraHandler;
@@ -39,18 +40,20 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
     private TextView mBtnCancel;
 
     private Intent intentResult;
-    private boolean isStreaming = false;
+    private volatile boolean isStreaming = false;
 
     // Frame callback for streaming
     private final IFrameCallback mFrameCallback = new IFrameCallback() {
         @Override
         public void onFrame(ByteBuffer frame) {
-            if (!isStreaming) return;
+            if (!isStreaming || frame == null) return;
 
             try {
-                // Convert ByteBuffer to byte array
+                // Fix: Save and restore ByteBuffer position
+                int position = frame.position();
                 byte[] frameData = new byte[frame.remaining()];
                 frame.get(frameData);
+                frame.position(position); // Reset position for reuse
 
                 // Send frame data back to plugin via broadcast
                 Intent frameIntent = new Intent("id.periksa.plugins.usbcamera.FRAME_AVAILABLE");
@@ -58,10 +61,13 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
                 frameIntent.putExtra("width", PREVIEW_WIDTH);
                 frameIntent.putExtra("height", PREVIEW_HEIGHT);
                 frameIntent.putExtra("format", "YUV420SP");
+
+                // Note: This broadcast should ideally use local broadcast or permissions
+                // for production apps to prevent interception
                 sendBroadcast(frameIntent);
 
             } catch (Exception e) {
-                Log.e(TAG, "Error processing frame: " + e.getMessage());
+                Log.e(TAG, "Error processing frame: " + e.getMessage(), e);
             }
         }
     };
@@ -194,10 +200,23 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
 
     private void startPreviewAndStreaming() {
         final SurfaceTexture st = mUVCCameraView.getSurfaceTexture();
-        mCameraHandler.startPreview(new Surface(st));
+        if (st == null) {
+            Log.e(TAG, "SurfaceTexture is null, cannot start preview");
+            exitWithCode("error_no_surface");
+            return;
+        }
 
-        // Register frame callback for streaming
-        mCameraHandler.setFrameCallback(mFrameCallback, UVCCamera.PIXEL_FORMAT_YUV420SP);
+        try {
+            mCameraHandler.startPreview(new Surface(st));
+
+            // Register frame callback for streaming
+            // Note: Using YUV420SP format for compatibility with most cameras
+            mCameraHandler.setFrameCallback(mFrameCallback, UVCCamera.PIXEL_FORMAT_YUV420SP);
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting preview and streaming", e);
+            exitWithCode("error_start_failed");
+            return;
+        }
 
         runOnUiThread(() -> {
             mBtnCancel.setVisibility(View.VISIBLE);
