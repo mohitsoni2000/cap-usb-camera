@@ -1,0 +1,405 @@
+{
+  "guide": {
+    "title": "USB Camera Plugin Integration Guide for Ionic",
+    "version": "1.0.0",
+    "last_updated": "2025-10-28",
+    "steps": [
+      {
+        "step": 1,
+        "title": "Prerequisites",
+        "description": "Ensure your development environment is properly set up",
+        "requirements": [
+          {
+            "name": "Node.js",
+            "version": ">=14.x",
+            "command_check": "node --version"
+          },
+          {
+            "name": "Ionic CLI",
+            "version": ">=6.x",
+            "command_check": "ionic --version",
+            "install_command": "npm install -g @ionic/cli"
+          },
+          {
+            "name": "Capacitor",
+            "version": ">=4.x",
+            "command_check": "npx cap --version"
+          },
+          {
+            "name": "Android Studio",
+            "version": "Latest",
+            "required_for": "Android development",
+            "download_url": "https://developer.android.com/studio"
+          }
+        ]
+      },
+      {
+        "step": 2,
+        "title": "Install the Plugin",
+        "description": "Add the USB camera plugin to your Ionic project",
+        "commands": [
+          {
+            "description": "Navigate to your Ionic project directory",
+            "command": "cd your-ionic-app"
+          },
+          {
+            "description": "Install the plugin (assuming it's published to npm)",
+            "command": "npm install @periksa/cap-usb-camera",
+            "alternative": "If installing from local path",
+            "alternative_command": "npm install /path/to/cap-usb-camera"
+          },
+          {
+            "description": "Sync Capacitor",
+            "command": "npx cap sync"
+          }
+        ]
+      },
+      {
+        "step": 3,
+        "title": "Configure Android Permissions",
+        "description": "Add required permissions to AndroidManifest.xml",
+        "file": "android/app/src/main/AndroidManifest.xml",
+        "add_permissions": [
+          "<uses-permission android:name=\"android.permission.CAMERA\" />",
+          "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" />",
+          "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" />",
+          "<uses-permission android:name=\"android.permission.INTERNET\" />",
+          "<uses-feature android:name=\"android.hardware.usb.host\" />"
+        ],
+        "location": "Inside the <manifest> tag, before <application>"
+      },
+      {
+        "step": 4,
+        "title": "Update Gradle Settings (if needed)",
+        "description": "Ensure proper Gradle configuration",
+        "file": "android/app/build.gradle",
+        "verify_settings": {
+          "minSdkVersion": 21,
+          "targetSdkVersion": 34,
+          "compileSdkVersion": 34
+        },
+        "additional_repositories": {
+          "file": "android/build.gradle",
+          "add_to_repositories": [
+            "maven { url 'https://raw.github.com/saki4510t/libcommon/master/repository/' }"
+          ]
+        }
+      },
+      {
+        "step": 5,
+        "title": "Basic Integration - Photo Capture",
+        "description": "Implement basic USB camera photo capture functionality",
+        "implementation": {
+          "file": "src/app/home/home.page.ts",
+          "code": {
+            "imports": [
+              "import { UsbCamera } from '@periksa/cap-usb-camera';"
+            ],
+            "class_properties": [],
+            "methods": [
+              {
+                "name": "capturePhoto",
+                "description": "Capture a photo from USB camera",
+                "code": "async capturePhoto() {\n  try {\n    const result = await UsbCamera.getPhoto({\n      saveToStorage: true\n    });\n\n    if (result.data?.dataURL) {\n      console.log('Photo captured:', result.data.dataURL);\n      // Display the photo\n      const imgElement = document.getElementById('captured-image') as HTMLImageElement;\n      if (imgElement) {\n        imgElement.src = result.data.dataURL;\n      }\n    }\n  } catch (error) {\n    console.error('Error capturing photo:', error);\n    alert('Failed to capture photo: ' + error);\n  }\n}"
+              }
+            ]
+          },
+          "template": {
+            "file": "src/app/home/home.page.html",
+            "code": "<ion-header>\n  <ion-toolbar>\n    <ion-title>USB Camera</ion-title>\n  </ion-toolbar>\n</ion-header>\n\n<ion-content>\n  <div class=\"ion-padding\">\n    <ion-button expand=\"block\" (click)=\"capturePhoto()\">\n      <ion-icon name=\"camera\" slot=\"start\"></ion-icon>\n      Capture Photo\n    </ion-button>\n\n    <div class=\"image-container\">\n      <img id=\"captured-image\" alt=\"Captured photo\" />\n    </div>\n  </div>\n</ion-content>"
+          }
+        }
+      },
+      {
+        "step": 6,
+        "title": "Advanced Integration - Video Streaming",
+        "description": "Implement USB camera streaming for LiveKit",
+        "implementation": {
+          "file": "src/app/streaming/streaming.page.ts",
+          "code": {
+            "imports": [
+              "import { UsbCamera, UsbCameraFrameData } from '@periksa/cap-usb-camera';"
+            ],
+            "class_properties": [
+              "private frameListener: any;",
+              "private isStreaming = false;",
+              "private canvas: HTMLCanvasElement | null = null;",
+              "private ctx: CanvasRenderingContext2D | null = null;"
+            ],
+            "methods": [
+              {
+                "name": "ngAfterViewInit",
+                "description": "Initialize canvas after view is ready",
+                "code": "ngAfterViewInit() {\n  this.canvas = document.getElementById('preview-canvas') as HTMLCanvasElement;\n  if (this.canvas) {\n    this.ctx = this.canvas.getContext('2d');\n  }\n}"
+              },
+              {
+                "name": "startStreaming",
+                "description": "Start USB camera streaming",
+                "code": "async startStreaming() {\n  try {\n    // Register frame listener\n    this.frameListener = await UsbCamera.addListener(\n      'frame',\n      (data: UsbCameraFrameData) => {\n        this.onFrameReceived(data);\n      }\n    );\n\n    // Start streaming\n    const result = await UsbCamera.startStream({\n      width: 640,\n      height: 480,\n      frameRate: 30\n    });\n\n    if (result.streaming) {\n      this.isStreaming = true;\n      console.log('Streaming started:', result);\n    }\n  } catch (error) {\n    console.error('Error starting stream:', error);\n    alert('Failed to start streaming: ' + error);\n  }\n}"
+              },
+              {
+                "name": "stopStreaming",
+                "description": "Stop USB camera streaming",
+                "code": "async stopStreaming() {\n  try {\n    await UsbCamera.stopStream();\n    \n    if (this.frameListener) {\n      await this.frameListener.remove();\n      this.frameListener = null;\n    }\n    \n    this.isStreaming = false;\n    console.log('Streaming stopped');\n  } catch (error) {\n    console.error('Error stopping stream:', error);\n  }\n}"
+              },
+              {
+                "name": "onFrameReceived",
+                "description": "Handle received frames",
+                "code": "private onFrameReceived(data: UsbCameraFrameData) {\n  if (!this.canvas || !this.ctx) return;\n\n  // Decode base64 frame data\n  const img = new Image();\n  img.onload = () => {\n    if (this.canvas && this.ctx) {\n      this.canvas.width = data.width;\n      this.canvas.height = data.height;\n      this.ctx.drawImage(img, 0, 0);\n    }\n  };\n  \n  // Create data URL from base64\n  img.src = 'data:image/jpeg;base64,' + data.frameData;\n}"
+              },
+              {
+                "name": "ngOnDestroy",
+                "description": "Cleanup on component destroy",
+                "code": "ngOnDestroy() {\n  if (this.isStreaming) {\n    this.stopStreaming();\n  }\n}"
+              }
+            ]
+          },
+          "template": {
+            "file": "src/app/streaming/streaming.page.html",
+            "code": "<ion-header>\n  <ion-toolbar>\n    <ion-title>USB Camera Streaming</ion-title>\n  </ion-toolbar>\n</ion-header>\n\n<ion-content>\n  <div class=\"ion-padding\">\n    <div class=\"button-group\">\n      <ion-button \n        expand=\"block\" \n        (click)=\"startStreaming()\" \n        [disabled]=\"isStreaming\">\n        <ion-icon name=\"play\" slot=\"start\"></ion-icon>\n        Start Streaming\n      </ion-button>\n\n      <ion-button \n        expand=\"block\" \n        color=\"danger\"\n        (click)=\"stopStreaming()\" \n        [disabled]=\"!isStreaming\">\n        <ion-icon name=\"stop\" slot=\"start\"></ion-icon>\n        Stop Streaming\n      </ion-button>\n    </div>\n\n    <div class=\"canvas-container\">\n      <canvas id=\"preview-canvas\"></canvas>\n    </div>\n\n    <div class=\"status\">\n      <p>Status: {{ isStreaming ? 'Streaming' : 'Stopped' }}</p>\n    </div>\n  </div>\n</ion-content>"
+          },
+          "styles": {
+            "file": "src/app/streaming/streaming.page.scss",
+            "code": ".canvas-container {\n  margin-top: 20px;\n  text-align: center;\n  background: #000;\n  border-radius: 8px;\n  overflow: hidden;\n  \n  canvas {\n    max-width: 100%;\n    height: auto;\n  }\n}\n\n.button-group {\n  display: flex;\n  gap: 10px;\n  \n  ion-button {\n    flex: 1;\n  }\n}\n\n.status {\n  margin-top: 20px;\n  text-align: center;\n  font-weight: bold;\n}"
+          }
+        }
+      },
+      {
+        "step": 7,
+        "title": "LiveKit Integration",
+        "description": "Integrate USB camera with LiveKit for real-time video communication",
+        "prerequisites": {
+          "install_packages": [
+            "npm install livekit-client"
+          ]
+        },
+        "implementation": {
+          "file": "src/app/livekit/livekit.page.ts",
+          "code": {
+            "imports": [
+              "import { UsbCamera, UsbCameraFrameData } from '@periksa/cap-usb-camera';",
+              "import { Room, RoomEvent, createLocalVideoTrack, VideoPresets } from 'livekit-client';"
+            ],
+            "class_properties": [
+              "private room: Room | null = null;",
+              "private frameListener: any;",
+              "private canvas: HTMLCanvasElement | null = null;",
+              "private mediaStream: MediaStream | null = null;"
+            ],
+            "methods": [
+              {
+                "name": "connectToLiveKit",
+                "description": "Connect to LiveKit room with USB camera",
+                "code": "async connectToLiveKit() {\n  try {\n    // Initialize canvas for capturing frames\n    this.canvas = document.createElement('canvas');\n    this.canvas.width = 640;\n    this.canvas.height = 480;\n    const ctx = this.canvas.getContext('2d');\n\n    // Register frame listener\n    this.frameListener = await UsbCamera.addListener(\n      'frame',\n      (data: UsbCameraFrameData) => {\n        if (ctx && this.canvas) {\n          const img = new Image();\n          img.onload = () => {\n            ctx.drawImage(img, 0, 0);\n          };\n          img.src = 'data:image/jpeg;base64,' + data.frameData;\n        }\n      }\n    );\n\n    // Start USB camera streaming\n    await UsbCamera.startStream({\n      width: 640,\n      height: 480,\n      frameRate: 30\n    });\n\n    // Create MediaStream from canvas\n    this.mediaStream = this.canvas.captureStream(30);\n\n    // Connect to LiveKit\n    this.room = new Room();\n\n    this.room.on(RoomEvent.Connected, () => {\n      console.log('Connected to LiveKit room');\n    });\n\n    await this.room.connect(\n      'wss://your-livekit-server.com',\n      'your-token'\n    );\n\n    // Publish camera track\n    if (this.mediaStream) {\n      const videoTrack = this.mediaStream.getVideoTracks()[0];\n      await this.room.localParticipant.publishTrack(videoTrack, {\n        name: 'usb-camera',\n        videoQuality: VideoPresets.h720.resolution\n      });\n    }\n\n    console.log('USB camera published to LiveKit');\n  } catch (error) {\n    console.error('Error connecting to LiveKit:', error);\n    alert('Failed to connect: ' + error);\n  }\n}"
+              },
+              {
+                "name": "disconnectFromLiveKit",
+                "description": "Disconnect from LiveKit and cleanup",
+                "code": "async disconnectFromLiveKit() {\n  try {\n    // Stop USB camera\n    await UsbCamera.stopStream();\n    \n    if (this.frameListener) {\n      await this.frameListener.remove();\n      this.frameListener = null;\n    }\n\n    // Disconnect from LiveKit\n    if (this.room) {\n      await this.room.disconnect();\n      this.room = null;\n    }\n\n    // Cleanup media stream\n    if (this.mediaStream) {\n      this.mediaStream.getTracks().forEach(track => track.stop());\n      this.mediaStream = null;\n    }\n\n    console.log('Disconnected from LiveKit');\n  } catch (error) {\n    console.error('Error disconnecting:', error);\n  }\n}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "step": 8,
+        "title": "Build and Run",
+        "description": "Build and deploy your Ionic app to Android device",
+        "commands": [
+          {
+            "description": "Build the Ionic app",
+            "command": "ionic build"
+          },
+          {
+            "description": "Sync with Capacitor",
+            "command": "npx cap sync"
+          },
+          {
+            "description": "Copy web assets to native project",
+            "command": "npx cap copy android"
+          },
+          {
+            "description": "Open Android Studio",
+            "command": "npx cap open android"
+          },
+          {
+            "description": "Or run directly on connected device",
+            "command": "npx cap run android"
+          }
+        ],
+        "notes": [
+          "Connect your Android device via USB",
+          "Enable USB debugging on your device",
+          "Connect USB camera to your Android device via OTG cable",
+          "Grant camera and storage permissions when prompted"
+        ]
+      },
+      {
+        "step": 9,
+        "title": "Testing",
+        "description": "Test the USB camera integration",
+        "test_cases": [
+          {
+            "name": "Photo Capture Test",
+            "steps": [
+              "Launch the app",
+              "Connect USB camera to device",
+              "Tap 'Capture Photo' button",
+              "Verify photo is displayed",
+              "Check if photo is saved to storage (if enabled)"
+            ],
+            "expected": "Photo should be captured and displayed immediately"
+          },
+          {
+            "name": "Streaming Test",
+            "steps": [
+              "Navigate to streaming page",
+              "Tap 'Start Streaming' button",
+              "Verify live preview appears",
+              "Tap 'Stop Streaming' button",
+              "Verify preview stops"
+            ],
+            "expected": "Live preview should show camera feed at ~30fps"
+          },
+          {
+            "name": "LiveKit Integration Test",
+            "steps": [
+              "Configure LiveKit server URL and token",
+              "Connect to LiveKit room",
+              "Verify video is published",
+              "Check remote participants can see your video",
+              "Disconnect and verify cleanup"
+            ],
+            "expected": "USB camera feed should be visible to remote participants"
+          }
+        ]
+      },
+      {
+        "step": 10,
+        "title": "Troubleshooting",
+        "description": "Common issues and solutions",
+        "issues": [
+          {
+            "problem": "Camera not detected",
+            "solutions": [
+              "Verify USB camera is connected via OTG cable",
+              "Check if camera is USB UVC compatible",
+              "Restart the app after connecting camera",
+              "Check Android logs: adb logcat | grep USB"
+            ]
+          },
+          {
+            "problem": "Permission denied error",
+            "solutions": [
+              "Ensure all permissions are declared in AndroidManifest.xml",
+              "Grant permissions manually in device settings",
+              "Request permissions at runtime if needed",
+              "Check targetSdkVersion is properly configured"
+            ]
+          },
+          {
+            "problem": "Black screen during streaming",
+            "solutions": [
+              "Verify camera is properly initialized",
+              "Check canvas dimensions match camera resolution",
+              "Look for errors in browser console",
+              "Ensure frame callback is properly registered"
+            ]
+          },
+          {
+            "problem": "LiveKit connection fails",
+            "solutions": [
+              "Verify LiveKit server URL is correct",
+              "Check if token is valid and not expired",
+              "Ensure INTERNET permission is granted",
+              "Check network connectivity",
+              "Verify LiveKit server is accessible from device"
+            ]
+          },
+          {
+            "problem": "App crashes on startup",
+            "solutions": [
+              "Check Gradle dependencies are properly synced",
+              "Verify minSdkVersion meets requirements (21+)",
+              "Run 'npx cap sync' after plugin installation",
+              "Check Android logs for stack trace",
+              "Clean and rebuild: ./gradlew clean build"
+            ]
+          }
+        ]
+      }
+    ],
+    "additional_resources": {
+      "documentation": [
+        {
+          "name": "Plugin README",
+          "path": "README.md"
+        },
+        {
+          "name": "LiveKit Integration Guide",
+          "path": "LIVEKIT_INTEGRATION.md"
+        },
+        {
+          "name": "Verification Report",
+          "path": "LIVEKIT_VERIFICATION_REPORT.md"
+        }
+      ],
+      "example_repositories": [
+        {
+          "name": "Ionic Capacitor Plugins Examples",
+          "url": "https://github.com/ionic-team/capacitor-plugins"
+        },
+        {
+          "name": "LiveKit Examples",
+          "url": "https://github.com/livekit/livekit-examples"
+        }
+      ],
+      "useful_commands": [
+        {
+          "command": "npx cap doctor",
+          "description": "Check Capacitor environment setup"
+        },
+        {
+          "command": "adb logcat",
+          "description": "View Android logs in real-time"
+        },
+        {
+          "command": "adb devices",
+          "description": "List connected Android devices"
+        },
+        {
+          "command": "ionic serve",
+          "description": "Test in browser (USB camera won't work, but UI can be tested)"
+        }
+      ]
+    },
+    "configuration_templates": {
+      "capacitor_config": {
+        "file": "capacitor.config.ts",
+        "example": "import { CapacitorConfig } from '@capacitor/cli';\n\nconst config: CapacitorConfig = {\n  appId: 'com.yourcompany.usbcameraapp',\n  appName: 'USB Camera App',\n  webDir: 'www',\n  bundledWebRuntime: false,\n  plugins: {\n    UsbCamera: {\n      // Plugin configuration (if needed)\n    }\n  }\n};\n\nexport default config;"
+      },
+      "angular_module": {
+        "file": "src/app/app.module.ts",
+        "note": "No special configuration needed - Capacitor plugins work automatically"
+      }
+    },
+    "performance_tips": [
+      "Use appropriate canvas size (640x480 or 1280x720) for optimal performance",
+      "Limit frame rate to 30fps for balanced performance",
+      "Dispose of Image objects after drawing to canvas",
+      "Use RequestAnimationFrame for smooth rendering",
+      "Monitor memory usage during long streaming sessions",
+      "Implement proper cleanup in ngOnDestroy()"
+    ],
+    "best_practices": [
+      "Always check if device has USB camera connected before starting",
+      "Handle errors gracefully with user-friendly messages",
+      "Request permissions before accessing camera",
+      "Clean up resources (listeners, streams) when component is destroyed",
+      "Test on multiple Android devices and API levels",
+      "Implement loading indicators during camera initialization",
+      "Use TypeScript types for better code quality",
+      "Log important events for debugging"
+    ]
+  }
+}
