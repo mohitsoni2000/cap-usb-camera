@@ -26,6 +26,15 @@ public class YUVConverter {
         int ySize = width * height;
         int uvSize = ySize / 4;
 
+        // Validate input data size
+        int expectedSize = width * height * 3 / 2; // Y plane + UV plane
+        if (nv21Data.length < expectedSize) {
+            throw new IllegalArgumentException(
+                "Input data too small. Expected at least " + expectedSize +
+                " bytes but got " + nv21Data.length
+            );
+        }
+
         // Allocate direct ByteBuffers for LiveKit (required for native code)
         ByteBuffer yPlane = ByteBuffer.allocateDirect(ySize);
         ByteBuffer uPlane = ByteBuffer.allocateDirect(uvSize);

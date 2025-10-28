@@ -1,11 +1,11 @@
 package id.periksa.plugins.usbcamera;
 
-import android.content.Context;
 import android.util.Log;
 
 import com.serenegiant.usb_libuvccamera.IFrameCallback;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicLong;
 
 import livekit.org.webrtc.VideoFrame;
 import livekit.org.webrtc.VideoSink;
@@ -22,7 +22,7 @@ public class USBCameraVideoCapturer implements IFrameCallback {
     private final int height;
     private volatile boolean isCapturing = false;
     private volatile VideoSink videoSink;
-    private long frameCount = 0;
+    private final AtomicLong frameCount = new AtomicLong(0);
 
     public USBCameraVideoCapturer(int width, int height) {
         this.width = width;
@@ -41,7 +41,7 @@ public class USBCameraVideoCapturer implements IFrameCallback {
      */
     public void startCapture() {
         isCapturing = true;
-        frameCount = 0;
+        frameCount.set(0);
         Log.d(TAG, "Started capturing USB camera frames for LiveKit");
     }
 
@@ -100,9 +100,9 @@ public class USBCameraVideoCapturer implements IFrameCallback {
             videoFrame.release();
             i420Data.release();
 
-            frameCount++;
-            if (frameCount % 30 == 0) {
-                Log.d(TAG, "Pushed " + frameCount + " frames to LiveKit");
+            long count = frameCount.incrementAndGet();
+            if (count % 30 == 0) {
+                Log.d(TAG, "Pushed " + count + " frames to LiveKit");
             }
 
         } catch (Exception e) {
@@ -114,7 +114,7 @@ public class USBCameraVideoCapturer implements IFrameCallback {
      * Get the current frame count
      */
     public long getFrameCount() {
-        return frameCount;
+        return frameCount.get();
     }
 
     /**

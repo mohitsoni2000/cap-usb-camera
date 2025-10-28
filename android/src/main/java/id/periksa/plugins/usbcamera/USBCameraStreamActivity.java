@@ -165,6 +165,14 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
             mUSBMonitor = null;
         }
         mUVCCameraView = null;
+
+        // Clean up static references to prevent memory leaks
+        if (liveKitCapturer != null) {
+            liveKitCapturer.stopCapture();
+            liveKitCapturer = null;
+        }
+        liveKitVideoSink = null;
+
         super.onDestroy();
     }
 

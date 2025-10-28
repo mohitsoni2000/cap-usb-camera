@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Intent;
 import android.util.Log;
 
+import java.util.Locale;
+
 import livekit.org.webrtc.VideoSink;
 import livekit.org.webrtc.VideoSource;
 import livekit.org.webrtc.EglBase;
@@ -40,10 +42,9 @@ public class LiveKitUSBCameraHelper {
     private static final int REQUEST_CODE_USB_CAMERA = 12345;
 
     private final Activity activity;
-    private VideoSource videoSource;
     private VideoSink videoSink;
     private USBCameraVideoCapturer capturer;
-    private boolean isStreaming = false;
+    private volatile boolean isStreaming = false;
 
     public LiveKitUSBCameraHelper(Activity activity) {
         this.activity = activity;
@@ -52,23 +53,17 @@ public class LiveKitUSBCameraHelper {
     /**
      * Create a VideoSource for LiveKit
      *
+     * Note: This is a placeholder method. Developers should create VideoSource
+     * directly using LiveKit SDK's PeerConnectionFactory.
+     *
      * @param eglBase EglBase context from LiveKit
-     * @return VideoSource that can be used with LiveKit
+     * @return null - VideoSource should be created via LiveKit SDK
+     * @deprecated This method is not needed. Create VideoSource via LiveKit SDK directly.
      */
+    @Deprecated
     public VideoSource createVideoSource(EglBase eglBase) {
-        if (videoSource != null) {
-            Log.w(TAG, "VideoSource already created");
-            return videoSource;
-        }
-
-        // Create video source using LiveKit's factory
-        // Note: You need to get the PeerConnectionFactory from your LiveKit Room
-        // This is a simplified version - adjust based on your LiveKit setup
-        Log.d(TAG, "Creating VideoSource for LiveKit");
-
-        // The VideoSource will be created by LiveKit's factory
-        // This is just a helper to manage the USB camera integration
-        return null; // Return null here - developers should create VideoSource via LiveKit SDK
+        Log.w(TAG, "createVideoSource() is deprecated. Create VideoSource via LiveKit SDK directly.");
+        return null;
     }
 
     /**
@@ -152,6 +147,7 @@ public class LiveKitUSBCameraHelper {
         }
 
         return String.format(
+            Locale.US,
             "USB Camera Stats: %dx%d, %d frames captured",
             capturer.getWidth(),
             capturer.getHeight(),
