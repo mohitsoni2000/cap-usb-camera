@@ -1,7 +1,10 @@
 package id.periksa.plugins.usbcamera;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.ImageDecoder;
 import android.net.Uri;
@@ -9,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.activity.result.ActivityResult;
 
@@ -44,10 +48,27 @@ public class UsbCameraPlugin extends Plugin {
     };
 
     private final List<String> mMissPermissions = new ArrayList<>();
+    private BroadcastReceiver frameReceiver;
+    private volatile boolean isStreamingActive = false;
+    private boolean isFrameReceiverRegistered = false;
 
     @Override
     protected void handleOnStart() {
         super.handleOnStart();
+    }
+
+    @Override
+    protected void handleOnStop() {
+        super.handleOnStop();
+        if (frameReceiver != null && isFrameReceiverRegistered) {
+            try {
+                getContext().unregisterReceiver(frameReceiver);
+                isFrameReceiverRegistered = false;
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Frame receiver was not registered", e);
+            }
+            frameReceiver = null;
+        }
     }
 
     @PluginMethod
@@ -158,6 +179,154 @@ public class UsbCameraPlugin extends Plugin {
             }
 
             call.resolve(plResult);
+        }
+    }
+
+    // LiveKit Streaming Methods
+
+    @PluginMethod
+    public void startStream(PluginCall call) {
+        if (checkAndRequestPermissions(call)) {
+            startStreamingIntent(call);
+        }
+    }
+
+    @PluginMethod
+    public void stopStream(PluginCall call) {
+        isStreamingActive = false;
+        if (frameReceiver != null && isFrameReceiverRegistered) {
+            try {
+                getContext().unregisterReceiver(frameReceiver);
+                isFrameReceiverRegistered = false;
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Frame receiver was not registered", e);
+            }
+            frameReceiver = null;
+        }
+
+        JSObject result = new JSObject();
+        result.put("status", "stopped");
+        result.put("exit_code", "stream_stopped");
+        call.resolve(result);
+    }
+
+    private void startStreamingIntent(PluginCall call) {
+        // Register broadcast receiver for frame data
+        if (frameReceiver == null) {
+            frameReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (!isStreamingActive) return;
+
+                    byte[] frameData = intent.getByteArrayExtra("frame_data");
+                    int width = intent.getIntExtra("width", 640);
+                    int height = intent.getIntExtra("height", 480);
+                    String format = intent.getStringExtra("format");
+
+                    if (frameData != null) {
+                        // Convert frame to base64 for sending to JavaScript
+                        String base64Frame = Base64.encodeToString(frameData, Base64.NO_WRAP);
+
+                        JSObject frameObject = new JSObject();
+                        frameObject.put("frameData", base64Frame);
+                        frameObject.put("width", width);
+                        frameObject.put("height", height);
+                        frameObject.put("format", format);
+                        frameObject.put("timestamp", System.currentTimeMillis());
+
+                        // Emit event to JavaScript
+                        notifyListeners("frame", frameObject);
+                    }
+                }
+            };
+
+            IntentFilter filter = new IntentFilter("id.periksa.plugins.usbcamera.FRAME_AVAILABLE");
+
+            // Fix: Check API level for RECEIVER_NOT_EXPORTED
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    getContext().registerReceiver(frameReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                } else {
+                    getContext().registerReceiver(frameReceiver, filter);
+                }
+                isFrameReceiverRegistered = true;
+                isStreamingActive = true; // Set only after successful registration
+            } catch (Exception e) {
+                Log.e(TAG, "Error registering frame receiver", e);
+                isStreamingActive = false;
+                call.reject("Failed to register frame receiver: " + e.getMessage());
+                return;
+            }
+        } else {
+            isStreamingActive = true;
+        }
+
+        Intent streamIntent = new Intent(getActivity(), USBCameraStreamActivity.class);
+        streamIntent.putExtra("streaming_mode", USBCameraStreamActivity.MODE_BROADCAST);
+        startActivityForResult(call, streamIntent, "streamResult");
+    }
+
+    /**
+     * Start USB camera streaming in LiveKit mode
+     * This mode is optimized for native LiveKit integration
+     *
+     * Note: This method is intended for native Android development.
+     * JavaScript/TypeScript developers should use the standard startStream() method.
+     */
+    @PluginMethod
+    public void startLiveKitStream(PluginCall call) {
+        if (!checkAndRequestPermissions(call)) {
+            return;
+        }
+
+        Intent streamIntent = new Intent(getActivity(), USBCameraStreamActivity.class);
+        streamIntent.putExtra("streaming_mode", USBCameraStreamActivity.MODE_LIVEKIT);
+        startActivityForResult(call, streamIntent, "streamResult");
+
+        Log.d(TAG, "Started LiveKit streaming mode");
+    }
+
+    /**
+     * Get LiveKit capturer instance
+     * This method allows native code to access the video capturer for LiveKit integration
+     *
+     * @return USBCameraVideoCapturer instance or null if not available
+     */
+    public static USBCameraVideoCapturer getLiveKitCapturer() {
+        return USBCameraStreamActivity.getLiveKitCapturer();
+    }
+
+    @ActivityCallback
+    private void streamResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+
+        Bundle bundle = result.getData() != null ? result.getData().getExtras() : null;
+        if (bundle != null) {
+            String exitCode = bundle.getString("exit_code", "unknown");
+            int width = bundle.getInt("width", 640);
+            int height = bundle.getInt("height", 480);
+
+            JSObject plResult = new JSObject();
+            plResult.put("status_code", result.getResultCode());
+            plResult.put("exit_code", exitCode);
+            plResult.put("width", width);
+            plResult.put("height", height);
+
+            if ("streaming_started".equals(exitCode)) {
+                plResult.put("streaming", true);
+                call.resolve(plResult);
+            } else {
+                isStreamingActive = false;
+                plResult.put("streaming", false);
+                call.resolve(plResult);
+            }
+        } else {
+            isStreamingActive = false;
+            JSObject errorResult = new JSObject();
+            errorResult.put("status_code", result.getResultCode());
+            errorResult.put("exit_code", "error");
+            errorResult.put("streaming", false);
+            call.resolve(errorResult);
         }
     }
 }

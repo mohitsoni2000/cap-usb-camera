@@ -7,6 +7,7 @@ import android.graphics.Bitmap;
 import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -33,8 +34,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.List;
-
-import static com.serenegiant.utils.FileUtils.getDateTimeString;
+import java.util.UUID;
 
 
 public class USBCameraActivity extends BaseActivity implements CameraDialog.CameraDialogParent {
@@ -59,19 +59,66 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
      */
     private static final int PREVIEW_MODE = 1;
 
-    private static final String TEMP_FILE_NAME = "camera_capture_result";
-
-
     private LibUVCCameraUSBMonitor mUSBMonitor;
     private UVCCameraHandler mCameraHandler;
     private CameraViewInterface mUVCCameraView;
     private ImageButton mBtnCapture;
     private TextView mBtnCancel;
-    private AlertDialog mDialog;
 
     private Intent intentResult;
 
     private boolean isCaptureToStorage;
+
+    private ImageButton mBtnRecord;
+    private ImageButton mBtnStopRecord;
+    private volatile boolean isRecording = false;
+    private String lastVideoPath = null;
+    private boolean isVideoRecordingMode = false;
+    private String videoFilePath = null;
+    private boolean isReceiverRegistered = false;
+
+    // Callback to capture camera events
+    private final UVCCameraHandler.CameraCallback cameraCallback = new UVCCameraHandler.CameraCallback() {
+        @Override public void onOpen() {}
+        @Override public void onClose() {}
+        @Override public void onStartPreview() {}
+        @Override public void onStopPreview() {}
+        @Override public void onStartRecording() {}
+
+        @Override
+        public void onStopRecording(String path) {
+            // Assigns the path of the saved video
+            lastVideoPath = path;
+            videoFilePath = path;
+            Log.i(TAG, "onStopRecording(String): Assigned video path: " + path);
+        }
+
+        @Override public void onStopRecording() {
+            // wait, log in and update MediaStore
+            if (lastVideoPath != null) {
+                File videoFile = new File(lastVideoPath);
+                if (videoFile.exists()) {
+                    Log.i(TAG, "Video saved in: " + lastVideoPath + ", size: " + videoFile.length() + " bytes");
+                    // Updates MediaStore to ensure visibility
+                    sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(videoFile)));
+                    Toast.makeText(getApplicationContext(), "Video saved successfully!", Toast.LENGTH_LONG).show();
+                } else {
+                    Log.e(TAG, "Video file not found: " + lastVideoPath);
+                    Toast.makeText(getApplicationContext(), "Error saving video!", Toast.LENGTH_LONG).show();
+                }
+            } else {
+                Log.e(TAG, "Video path is null after recording");
+                Toast.makeText(getApplicationContext(), "Error saving video!", Toast.LENGTH_LONG).show();
+            }
+        }
+
+        @Override public void onError(Exception e) {
+            Log.e(TAG, "Camera error occurred", e);
+            runOnUiThread(() -> {
+                Toast.makeText(getApplicationContext(), "Camera error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            });
+        }
+    };
 
     // Lifecycle Methods
 
@@ -85,17 +132,38 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
 
         mBtnCapture = findViewById(R.id.btn_capture);
         mBtnCapture.setOnClickListener(mOnCaptureClickListener);
-        mBtnCapture.setVisibility(View.INVISIBLE);
-
         mBtnCancel = findViewById(R.id.btn_cancel);
         mBtnCancel.setOnClickListener(mOnCancelClickListener);
-        mBtnCancel.setVisibility(View.INVISIBLE);
+        mBtnRecord = findViewById(R.id.btn_record);
+        mBtnRecord.setOnClickListener(mOnRecordClickListener);
+        mBtnStopRecord = findViewById(R.id.btn_stop_record);
+        mBtnStopRecord.setOnClickListener(mOnStopRecordClickListener);
+
+        // Initialize all invisibles
+        mBtnCapture.setVisibility(View.GONE);
+        mBtnRecord.setVisibility(View.GONE);
+        mBtnStopRecord.setVisibility(View.GONE);
 
         mUSBMonitor = new LibUVCCameraUSBMonitor(this, mOnDeviceConnectListener);
         mCameraHandler = UVCCameraHandler.createHandler(this, mUVCCameraView,
                 1, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_MODE);
+        mCameraHandler.addCallback(cameraCallback);
 
-        isCaptureToStorage = getIntent().getExtras().getBoolean("capture_to_storage", false);
+        // Fix: Add null check for extras
+        Bundle extras = getIntent().getExtras();
+        isCaptureToStorage = extras != null && extras.getBoolean("capture_to_storage", false);
+        Intent intent = getIntent();
+        isVideoRecordingMode = intent.getBooleanExtra("video_recording", false);
+        // Controlling the initial visibility of buttons
+        if (isVideoRecordingMode) {
+            mBtnRecord.setVisibility(View.VISIBLE);
+            mBtnStopRecord.setVisibility(View.GONE);
+            mBtnCapture.setVisibility(View.GONE);
+        } else {
+            mBtnCapture.setVisibility(View.VISIBLE);
+            mBtnRecord.setVisibility(View.GONE);
+            mBtnStopRecord.setVisibility(View.GONE);
+        }
     }
 
     @Override
@@ -215,35 +283,59 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
 
     private void startPreview() {
         final SurfaceTexture st = mUVCCameraView.getSurfaceTexture();
+        if (st == null) {
+            Log.e(TAG, "SurfaceTexture is null, cannot start preview");
+            return;
+        }
         mCameraHandler.startPreview(new Surface(st));
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                mBtnCapture.setVisibility(View.VISIBLE);
+                // Adjusts button visibility when starting preview
+                if (isVideoRecordingMode) {
+                    mBtnRecord.setVisibility(!isRecording ? View.VISIBLE : View.GONE);
+                    mBtnStopRecord.setVisibility(isRecording ? View.VISIBLE : View.GONE);
+                    mBtnCapture.setVisibility(View.GONE);
+                } else {
+                    mBtnCapture.setVisibility(View.VISIBLE);
+                    mBtnRecord.setVisibility(View.GONE);
+                    mBtnStopRecord.setVisibility(View.GONE);
+                }
                 mBtnCancel.setVisibility(View.VISIBLE);
             }
         });
     }
 
     private File saveImgToCache(Bitmap bitmap, String fileName) {
+       if (bitmap == null) {
+           Log.e(TAG, "Bitmap is null, cannot save to cache");
+           return null;
+       }
+
        File dir = new File(getCacheDir(), "USBCamera");
-       dir.mkdirs();
+       if (!dir.exists() && !dir.mkdirs()) {
+           Log.e(TAG, "Failed to create cache directory");
+           return null;
+       }
 
        try {
            if (dir.canWrite()) {
-               File cacheFile = new File(dir, fileName + ".png");
-               BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(cacheFile));
-               try {
-                   bitmap.compress(Bitmap.CompressFormat.PNG, 80, bos);
+               // Use provided fileName (should include extension)
+               File cacheFile = new File(dir, fileName);
+
+               // Use try-with-resources for automatic closure
+               try (BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(cacheFile))) {
+                   if (!bitmap.compress(Bitmap.CompressFormat.PNG, 80, bos)) {
+                       Log.e(TAG, "Failed to compress bitmap");
+                       return null;
+                   }
                    bos.flush();
-               } finally {
-                   bos.close();
                }
                return cacheFile;
            }
            return null;
        } catch (IOException ex) {
-           ex.printStackTrace();
+           Log.e(TAG, "Error saving image to cache", ex);
        }
        return null;
     }
@@ -251,9 +343,16 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
     private File captureCameraImage(boolean saveToStorage) {
         TextureView cameraTextureView = (TextureView) mUVCCameraView;
         Bitmap bitmap = cameraTextureView.getBitmap();
-        String fileName = getDateTimeString() + ".png";
 
-        File cacheFile = saveImgToCache(bitmap, TEMP_FILE_NAME);
+        if (bitmap == null) {
+            Log.e(TAG, "Failed to capture bitmap from camera view");
+            return null;
+        }
+
+        // Generates random name for the file with extension
+        String fileName = UUID.randomUUID().toString() + ".png";
+
+        File cacheFile = saveImgToCache(bitmap, fileName);
 
         if (!saveToStorage) {
             return cacheFile;
@@ -282,6 +381,7 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
                     throw new IOException("Failed to save bitmap.");
             }
         } catch (IOException e) {
+            Log.e(TAG, "Error saving image to MediaStore", e);
             if (uri != null) {
                 // Don't leave an orphan entry in the MediaStore
                 resolver.delete(uri, null, null);
@@ -303,6 +403,12 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
         public void onClick(View v) {
             if (mCameraHandler.isOpened()) {
                 File imgResult = captureCameraImage(isCaptureToStorage);
+
+                if (imgResult == null) {
+                    Toast.makeText(USBCameraActivity.this, "Failed to capture image", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
                 Uri fileUri = Uri.fromFile(imgResult);
 
                 mCameraHandler.close();
@@ -315,4 +421,81 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
             }
         }
     };
+
+    private final View.OnClickListener mOnRecordClickListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (mCameraHandler != null && !isRecording) {
+                mCameraHandler.startRecording();
+                isRecording = true;
+                showToast("Recording started", Toast.LENGTH_SHORT);
+                mBtnRecord.setVisibility(View.GONE);
+                mBtnStopRecord.setVisibility(View.VISIBLE);
+            }
+        }
+    };
+
+    private final View.OnClickListener mOnStopRecordClickListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (mCameraHandler != null && isRecording) {
+                mCameraHandler.stopRecording();
+                isRecording = false;
+                showToast("Recording stopped", Toast.LENGTH_SHORT);
+                mBtnRecord.setVisibility(View.VISIBLE);
+                mBtnStopRecord.setVisibility(View.GONE);
+                // After stopping, send the result to the intent
+                if (isVideoRecordingMode) {
+                    // Assuming the video path is in videoFilePath
+                    intentResult.putExtra("exit_code", "success");
+                    intentResult.putExtra("video_uri", videoFilePath != null ? videoFilePath : "");
+                    setResult(RESULT_OK, intentResult);
+                    finish();
+                }
+            }
+        }
+    };
+
+    // Receive broadcast to stop recording externally
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (isVideoRecordingMode && !isReceiverRegistered) {
+            try {
+                android.content.IntentFilter filter = new android.content.IntentFilter("id.periksa.plugins.usbcamera.STOP_RECORDING");
+                // Fix: Check API level for RECEIVER_NOT_EXPORTED
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    registerReceiver(stopRecordReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED);
+                } else {
+                    registerReceiver(stopRecordReceiver, filter);
+                }
+                isReceiverRegistered = true;
+            } catch (Exception e) {
+                Log.e(TAG, "Error registering receiver", e);
+            }
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (isVideoRecordingMode && isReceiverRegistered) {
+            try {
+                unregisterReceiver(stopRecordReceiver);
+                isReceiverRegistered = false;
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Receiver was not registered", e);
+            }
+        }
+        super.onPause();
+    }
+
+    private final android.content.BroadcastReceiver stopRecordReceiver = new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(android.content.Context context, Intent intent) {
+            if (isRecording) {
+                mBtnStopRecord.performClick();
+            }
+        }
+    };
+
 }
