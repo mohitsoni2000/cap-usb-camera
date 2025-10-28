@@ -250,14 +250,16 @@ public class UsbCameraPlugin extends Plugin {
                     getContext().registerReceiver(frameReceiver, filter);
                 }
                 isFrameReceiverRegistered = true;
+                isStreamingActive = true; // Set only after successful registration
             } catch (Exception e) {
                 Log.e(TAG, "Error registering frame receiver", e);
+                isStreamingActive = false;
                 call.reject("Failed to register frame receiver: " + e.getMessage());
                 return;
             }
+        } else {
+            isStreamingActive = true;
         }
-
-        isStreamingActive = true;
 
         Intent streamIntent = new Intent(getActivity(), USBCameraStreamActivity.class);
         startActivityForResult(call, streamIntent, "streamResult");

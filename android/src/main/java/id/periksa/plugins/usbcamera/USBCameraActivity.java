@@ -36,8 +36,6 @@ import java.io.OutputStream;
 import java.util.List;
 import java.util.UUID;
 
-import static com.serenegiant.utils.FileUtils.getDateTimeString;
-
 
 public class USBCameraActivity extends BaseActivity implements CameraDialog.CameraDialogParent {
     private static final String TAG = "CamActivityDebug";
@@ -66,7 +64,6 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
     private CameraViewInterface mUVCCameraView;
     private ImageButton mBtnCapture;
     private TextView mBtnCancel;
-    private AlertDialog mDialog;
 
     private Intent intentResult;
 
@@ -323,9 +320,8 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
 
        try {
            if (dir.canWrite()) {
-               // Use provided fileName or generate random name
-               String finalFileName = (fileName != null && !fileName.isEmpty()) ? fileName : UUID.randomUUID().toString();
-               File cacheFile = new File(dir, finalFileName + ".png");
+               // Use provided fileName (should include extension)
+               File cacheFile = new File(dir, fileName);
 
                // Use try-with-resources for automatic closure
                try (BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(cacheFile))) {
@@ -353,8 +349,8 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
             return null;
         }
 
-        // Generates random name for the file
-        String fileName = UUID.randomUUID().toString();
+        // Generates random name for the file with extension
+        String fileName = UUID.randomUUID().toString() + ".png";
 
         File cacheFile = saveImgToCache(bitmap, fileName);
 
@@ -385,6 +381,7 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
                     throw new IOException("Failed to save bitmap.");
             }
         } catch (IOException e) {
+            Log.e(TAG, "Error saving image to MediaStore", e);
             if (uri != null) {
                 // Don't leave an orphan entry in the MediaStore
                 resolver.delete(uri, null, null);
