@@ -246,6 +246,19 @@ abstract class AbstractUVCCameraHandler extends Handler {
 		}
 	}
 
+	/**
+	 * Set frame callback for direct frame access
+	 * @param callback IFrameCallback to receive frames, or null to stop
+	 * @param pixelFormat Pixel format (e.g., UVCCamera.PIXEL_FORMAT_YUV420SP)
+	 */
+	public void setFrameCallback(final IFrameCallback callback, final int pixelFormat) {
+		checkReleased();
+		final CameraThread thread = mWeakThread.get();
+		if (thread != null) {
+			thread.setFrameCallback(callback, pixelFormat);
+		}
+	}
+
 	protected void updateMedia(final String path) {
 		sendMessage(obtainMessage(MSG_MEDIA_UPDATE, path));
 	}
@@ -667,6 +680,17 @@ abstract class AbstractUVCCameraHandler extends Handler {
 			if ((mUVCCamera == null) || !mIsPreviewing)
 				return null;
 			return mUVCCamera.getSupportedSizeList();
+		}
+
+		/**
+		 * Set frame callback for direct frame access during streaming
+		 * @param callback IFrameCallback to receive frames, or null to clear
+		 * @param pixelFormat Pixel format (e.g., UVCCamera.PIXEL_FORMAT_YUV420SP)
+		 */
+		public void setFrameCallback(final IFrameCallback callback, final int pixelFormat) {
+			if (mUVCCamera != null) {
+				mUVCCamera.setFrameCallback(callback, pixelFormat);
+			}
 		}
 
 		public void handleCameraFocus() {

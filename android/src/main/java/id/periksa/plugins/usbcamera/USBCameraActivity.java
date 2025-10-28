@@ -93,7 +93,8 @@ public class USBCameraActivity extends BaseActivity implements CameraDialog.Came
             Log.i(TAG, "onStopRecording(String): Assigned video path: " + path);
         }
 
-        @Override public void onStopRecording() {
+        // Note: This is a helper method, not an interface override
+        public void onStopRecording() {
             // wait, log in and update MediaStore
             if (lastVideoPath != null) {
                 File videoFile = new File(lastVideoPath);
