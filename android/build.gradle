@@ -62,4 +62,7 @@ dependencies {
     implementation("com.serenegiant:common:5.7.0") {
         exclude module: 'support-v4'
     }
+
+    // LiveKit Android SDK for real-time video streaming
+    implementation 'io.livekit:livekit-android:2.0.0'
 }

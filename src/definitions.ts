@@ -80,6 +80,18 @@ export interface UsbCameraPlugin {
   stopStream(): Promise<{status: string, exit_code: string}>;
 
   /**
+   * Start streaming in LiveKit mode for native integration.
+   * This mode directly pushes I420 frames to LiveKit without broadcasting.
+   *
+   * Note: This method is primarily for native Android development.
+   * For JavaScript/Web integration, use startStream() with the canvas approach.
+   *
+   * @param {UsbCameraStreamOptions} options - Streaming configuration
+   * @returns {Promise<UsbCameraStreamResult>} Streaming status
+   */
+  startLiveKitStream(options?: UsbCameraStreamOptions): Promise<UsbCameraStreamResult>;
+
+  /**
    * Add a listener for camera frame events.
    * @param {UsbCameraPluginEvents} eventName - Name of the event to listen to
    * @param {(data: UsbCameraFrameData) => void} listenerFunc - Callback function to handle frames

@@ -262,7 +262,38 @@ public class UsbCameraPlugin extends Plugin {
         }
 
         Intent streamIntent = new Intent(getActivity(), USBCameraStreamActivity.class);
+        streamIntent.putExtra("streaming_mode", USBCameraStreamActivity.MODE_BROADCAST);
         startActivityForResult(call, streamIntent, "streamResult");
+    }
+
+    /**
+     * Start USB camera streaming in LiveKit mode
+     * This mode is optimized for native LiveKit integration
+     *
+     * Note: This method is intended for native Android development.
+     * JavaScript/TypeScript developers should use the standard startStream() method.
+     */
+    @PluginMethod
+    public void startLiveKitStream(PluginCall call) {
+        if (!checkAndRequestPermissions(call)) {
+            return;
+        }
+
+        Intent streamIntent = new Intent(getActivity(), USBCameraStreamActivity.class);
+        streamIntent.putExtra("streaming_mode", USBCameraStreamActivity.MODE_LIVEKIT);
+        startActivityForResult(call, streamIntent, "streamResult");
+
+        Log.d(TAG, "Started LiveKit streaming mode");
+    }
+
+    /**
+     * Get LiveKit capturer instance
+     * This method allows native code to access the video capturer for LiveKit integration
+     *
+     * @return USBCameraVideoCapturer instance or null if not available
+     */
+    public static USBCameraVideoCapturer getLiveKitCapturer() {
+        return USBCameraStreamActivity.getLiveKitCapturer();
     }
 
     @ActivityCallback

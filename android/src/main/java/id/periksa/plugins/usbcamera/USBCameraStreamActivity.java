@@ -24,11 +24,24 @@ import com.serenegiant.widget.CameraViewInterface;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import livekit.org.webrtc.VideoSink;
+
 /**
  * Activity for streaming USB camera frames for LiveKit integration
+ * Supports two modes:
+ * 1. Broadcast mode: Sends frames via Android broadcast (for JavaScript consumption)
+ * 2. LiveKit mode: Pushes frames directly to LiveKit VideoSink (for native integration)
  */
 public class USBCameraStreamActivity extends BaseActivity implements CameraDialog.CameraDialogParent {
     private static final String TAG = "USBCameraStream";
+
+    // Streaming modes
+    public static final String MODE_BROADCAST = "broadcast";
+    public static final String MODE_LIVEKIT = "livekit";
+
+    // Static reference for LiveKit integration
+    private static USBCameraVideoCapturer liveKitCapturer;
+    private static VideoSink liveKitVideoSink;
 
     private static final int PREVIEW_WIDTH = 640;
     private static final int PREVIEW_HEIGHT = 480;
@@ -41,9 +54,10 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
 
     private Intent intentResult;
     private volatile boolean isStreaming = false;
+    private String streamingMode = MODE_BROADCAST; // Default to broadcast mode
 
-    // Frame callback for streaming
-    private final IFrameCallback mFrameCallback = new IFrameCallback() {
+    // Frame callback for broadcast mode streaming
+    private final IFrameCallback mBroadcastFrameCallback = new IFrameCallback() {
         @Override
         public void onFrame(ByteBuffer frame) {
             if (!isStreaming || frame == null) return;
@@ -72,10 +86,32 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
         }
     };
 
+    /**
+     * Set the VideoSink for LiveKit mode
+     * Must be called before starting the activity
+     */
+    public static void setLiveKitVideoSink(VideoSink sink) {
+        liveKitVideoSink = sink;
+    }
+
+    /**
+     * Get the LiveKit capturer instance
+     */
+    public static USBCameraVideoCapturer getLiveKitCapturer() {
+        return liveKitCapturer;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_usbcamera_stream);
+
+        // Get streaming mode from intent
+        Bundle extras = getIntent().getExtras();
+        if (extras != null) {
+            streamingMode = extras.getString("streaming_mode", MODE_BROADCAST);
+        }
+        Log.d(TAG, "Starting stream activity in " + streamingMode + " mode");
 
         final View view = findViewById(R.id.camera_stream_view);
         mUVCCameraView = (CameraViewInterface) view;
@@ -209,9 +245,22 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
         try {
             mCameraHandler.startPreview(new Surface(st));
 
-            // Register frame callback for streaming
-            // Note: Using YUV420SP format for compatibility with most cameras
-            mCameraHandler.setFrameCallback(mFrameCallback, UVCCamera.PIXEL_FORMAT_YUV420SP);
+            // Register frame callback based on streaming mode
+            if (MODE_LIVEKIT.equals(streamingMode)) {
+                // LiveKit mode: Create capturer and set it as callback
+                liveKitCapturer = new USBCameraVideoCapturer(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+                if (liveKitVideoSink != null) {
+                    liveKitCapturer.setVideoSink(liveKitVideoSink);
+                }
+                liveKitCapturer.startCapture();
+                mCameraHandler.setFrameCallback(liveKitCapturer, UVCCamera.PIXEL_FORMAT_YUV420SP);
+                Log.d(TAG, "Started LiveKit mode streaming");
+            } else {
+                // Broadcast mode: Use broadcast callback
+                // Note: Using YUV420SP format for compatibility with most cameras
+                mCameraHandler.setFrameCallback(mBroadcastFrameCallback, UVCCamera.PIXEL_FORMAT_YUV420SP);
+                Log.d(TAG, "Started broadcast mode streaming");
+            }
         } catch (Exception e) {
             Log.e(TAG, "Error starting preview and streaming", e);
             exitWithCode("error_start_failed");
@@ -237,6 +286,13 @@ public class USBCameraStreamActivity extends BaseActivity implements CameraDialo
             if (mCameraHandler != null) {
                 mCameraHandler.setFrameCallback(null, 0);
             }
+
+            // Stop LiveKit capturer if in LiveKit mode
+            if (MODE_LIVEKIT.equals(streamingMode) && liveKitCapturer != null) {
+                liveKitCapturer.stopCapture();
+                Log.d(TAG, "LiveKit capturer stopped");
+            }
+
             Log.d(TAG, "Streaming stopped");
         }
     }
